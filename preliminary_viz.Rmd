@@ -1,0 +1,154 @@
+---
+title: "HSE 101: Final Project Check-In 1"
+author: "Aulanni Kidd"
+output: pdf_document
+date: "October 26, 2026"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r libraries}
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+```
+
+
+```{r raw-datasets}
+## loading in raw data
+covariate_data <- read_csv("~/Downloads/GSE85307_covar-1.csv")
+gene_exp_data <- read_csv("~/Downloads/GSE85307_geneExpression.csv")
+linker_names <- read_csv("~/Downloads/GSE85307_geneNames.csv")
+
+# glimpse(covariate_data)
+```
+
+
+```{r colour-palette}
+base_colour <- "#3E7C8C"
+colour1 <- "#D4849F"
+```
+
+
+```{r covariate-cleaning}
+## fixing variables of interest 
+## removing the text from gestational age at time of collection
+clean_cov_data <- covariate_data %>%
+  mutate(sampleCollection_gestAge_wks = parse_number(sampleCollection_gestAge_wks))
+
+## check that it worked
+# class(clean_cov_data$sampleCollection_gestAge_wks)
+# summary(clean_cov_data$sampleCollection_gestAge_wks)
+# sum(is.na(clean_cov_data$sampleCollection_gestAge_wks))
+
+## removing text on pregnancy condition
+# table(clean_cov_data$preg_preeclampsia)
+clean_cov_data <- clean_cov_data %>%
+  mutate(preg_preeclampsia = str_remove(preg_preeclampsia, "pregnancy_condition: "),
+         preg_preeclampsia = factor(preg_preeclampsia,
+                                    levels = c("Normal", "Preeclampsia")))
+# table(clean_cov_data$preg_preeclampsia)
+
+## changing mat BMI to categorical
+## taking out the text
+clean_cov_data <- clean_cov_data %>%
+  mutate(mat_BMI=as.numeric(str_remove(mat_BMI, "bmi_kg/m2: ")))
+
+## check 
+# class(clean_cov_data$mat_BMI)
+# summary(clean_cov_data$mat_BMI)          
+# sum(is.na(clean_cov_data$mat_BMI))       
+
+## splitting BMI into WHO categories
+clean_cov_data <- clean_cov_data %>%
+  mutate(bmi_group = cut(mat_BMI,
+                         breaks = c(0, 18.5, 25, 30, 65),
+                         labels = c("Underweight", "Normal", "Overweight", "Obese"),
+                         right  = FALSE))
+# table(clean_cov_data$bmi_group)
+
+## underweight only has 5 so I'll group it with normal
+clean_cov_data <- clean_cov_data %>%
+  mutate(bmi_group = cut(mat_BMI,
+                         breaks = c(0, 25, 30, Inf),
+                         labels = c("Underweight/Normal", "Overweight", "Obese"),
+                         right  = FALSE))
+# table(clean_cov_data$bmi_group)
+```
+
+
+```{r gene-exp-cleaning}
+## fixing the probeID column in the gene expression dataset
+clean_gene_exp <- gene_exp_data %>%
+  rename(probe_id = 1)
+
+# head(clean_gene_exp)
+```
+
+```{r gene-histogram}
+## histogram of bard1 gene - 8058695
+bard1 <- clean_gene_exp %>%
+  filter(probe_id == 8058695) %>%
+  pivot_longer(cols = -probe_id,
+               names_to = "geoID",
+               values_to = "expression")
+
+# head(bard1)
+# summary(bard1)
+
+ggplot(bard1, aes(x = expression)) +
+  geom_histogram(bins = 20, fill = base_colour, color = "white") +
+  labs(title = "BARD1 Gene Expression",
+       x = "Expression Level",
+       y = "Number of samples")+
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.grid = element_blank(),
+        axis.line = element_line(color = "black"))
+```
+
+```{r scatterplot-gene-cont-variable}
+## joining the gene to the cov.data using shared geo_ID
+bard1_cov <- bard1 %>%
+  left_join(clean_cov_data, by = "geoID") 
+
+## checks
+# nrow(bard1_cov) - ensuring no rows lost in the join                                       
+# sum(is.na(bard1_cov$sampleCollection_gestAge_wks))     
+
+ggplot(bard1_cov, aes(x = sampleCollection_gestAge_wks, y = expression)) +
+  geom_point(alpha = 0.8, size = 2, color = base_colour) +
+  geom_smooth(method = "lm", se = TRUE, color = colour1, fill = colour1, alpha = 0.3) +
+  labs(title = "BARD1 Expression vs. Gestational Age at Sample Collection",
+       x = "Gestational Age at Sample Collection (weeks)",
+       y = "BARD1 expression") +
+  theme_minimal()+
+   theme(plot.title = element_text(hjust = 0.5),
+        panel.grid = element_blank(),
+        axis.line = element_line(color = "black"))
+```
+
+
+```{r boxplot-of-both}
+
+# defining palette
+col_palette <- c("Normal" = base_colour, "Preeclampsia" = colour1)
+  
+
+ggplot(bard1_cov, aes(x = bmi_group, y = expression, fill = preg_preeclampsia)) +
+  geom_boxplot() +
+  scale_fill_manual(values = col_palette)+
+  labs(title = "BARD1 Expression by BMI Group and Preeclampsia Status",
+       x = "BMI group",
+       y = "BARD1 expression",
+       fill = "Pregnancy condition") +
+  theme_minimal()+
+  theme(plot.title = element_text(hjust = 0.5),
+        panel.grid = element_blank(),
+        axis.line = element_line(color = "black"))
+```
+
