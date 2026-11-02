@@ -1,24 +1,25 @@
 ---
-title: "HSE 101: Final Project Check-In 1"
+title: "HSE 103: Final Project Check-In 2"
 author: "Aulanni Kidd"
 output: pdf_document
-date: "October 26, 2026"
+date: "November 2, 2026"
 ---
+Additional Resources Used: Google Search AI Overview and Claude for troubleshooting errors, https://www.r-bloggers.com/2023/08/r-how-to-overlay-points-over-boxplots/
+
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
-
-```{r libraries}
+```{r libraries, message=FALSE}
 library(tidyverse)
 library(dplyr)
 library(ggplot2)
 ```
 
 
-```{r raw-datasets}
+```{r raw-datasets, message=FALSE}
 ## loading in raw data
 covariate_data <- read_csv("~/Downloads/GSE85307_covar-1.csv")
 gene_exp_data <- read_csv("~/Downloads/GSE85307_geneExpression.csv")
@@ -29,6 +30,7 @@ linker_names <- read_csv("~/Downloads/GSE85307_geneNames.csv")
 
 
 ```{r colour-palette}
+## setting project colours
 base_colour <- "#3E7C8C"
 colour1 <- "#D4849F"
 ```
@@ -74,7 +76,7 @@ clean_cov_data <- clean_cov_data %>%
 ## underweight only has 5 so I'll group it with normal
 clean_cov_data <- clean_cov_data %>%
   mutate(bmi_group = cut(mat_BMI,
-                         breaks = c(0, 25, 30, Inf),
+                         breaks = c(0, 25, 30, Inf), # inf to catch anything after 30
                          labels = c("Underweight/Normal", "Overweight", "Obese"),
                          right  = FALSE))
 # table(clean_cov_data$bmi_group)
@@ -106,9 +108,9 @@ ggplot(bard1, aes(x = expression)) +
        x = "Expression Level",
        y = "Number of samples")+
   theme_minimal() +
-  theme(plot.title = element_text(hjust = 0.5),
-        panel.grid = element_blank(),
-        axis.line = element_line(color = "black"))
+  theme(plot.title= element_text(hjust = 0.5),
+        panel.grid= element_blank(),
+        axis.line= element_line(color = "black"))
 ```
 
 ```{r scatterplot-gene-cont-variable}
@@ -120,6 +122,7 @@ bard1_cov <- bard1 %>%
 # nrow(bard1_cov) - ensuring no rows lost in the join                                       
 # sum(is.na(bard1_cov$sampleCollection_gestAge_wks))     
 
+## scatterplot
 ggplot(bard1_cov, aes(x = sampleCollection_gestAge_wks, y = expression)) +
   geom_point(alpha = 0.8, size = 2, color = base_colour) +
   geom_smooth(method = "lm", se = TRUE, color = colour1, fill = colour1, alpha = 0.3) +
@@ -134,7 +137,7 @@ ggplot(bard1_cov, aes(x = sampleCollection_gestAge_wks, y = expression)) +
 
 
 ```{r boxplot-of-both}
-
+## boxplot of both categorical variables
 # defining palette
 col_palette <- c("Normal" = base_colour, "Preeclampsia" = colour1)
   
@@ -150,5 +153,104 @@ ggplot(bard1_cov, aes(x = bmi_group, y = expression, fill = preg_preeclampsia)) 
   theme(plot.title = element_text(hjust = 0.5),
         panel.grid = element_blank(),
         axis.line = element_line(color = "black"))
+```
+
+```{r}
+## SUBMISSION 2 - pieces of function 
+## creating the list of genes
+project_genes <- c("BARD1","ISM2", "ZPBP")
+
+## subset to genes of interest to get probe ID
+gene_list<- linker_names%>%
+  filter(GENE %in% project_genes)
+
+gene_list
+
+## pulling the probe IDs using code 
+gene <- "ISM2"
+probe <- gene_list %>% 
+  filter(GENE == gene) %>% 
+  pull(PROBEID)
+
+probe
+
+expression_values <- clean_gene_exp %>%
+  filter(probe_id == probe) %>%
+  select(-probe_id) %>% # choosing all samples except the probe ID 
+  unlist() # turns the row into a plain list of numbers so I can look them up by sample ID
+
+gene_and_cov <- clean_cov_data %>%
+  mutate(expression = expression_values[geoID]) # finally matching each woman's ID to the expression values
+
+```
+
+
+
+```{r}
+col_palette <- c("Normal" = base_colour, "Preeclampsia" = colour1)
+
+gene_visuals <- function(df, genes) {
+  for (i in genes) {
+    probe <- linker_names %>% 
+      filter(GENE == i) %>% 
+      pull(PROBEID)
+
+    expression_values <- df %>%
+      filter(probe_id == probe) %>%
+      select(-probe_id) %>%
+      unlist()
+
+    gene_and_cov <- clean_cov_data %>%
+      mutate(expression = expression_values[geoID])
+
+    ## histogram
+    hist_plot <- ggplot(gene_and_cov, aes(x = expression)) +
+      geom_histogram(bins = 20, fill = base_colour, color = "white") +
+      labs(title = paste0(i, " Gene Expression"),
+           x = "Expression Level",
+           y = "Number of samples") +
+      theme_minimal() +
+      theme(plot.title = element_text(hjust = 0.5),
+            panel.grid = element_blank(),
+            axis.line = element_line(color = "black"))
+
+    ## scatterplot
+    scatter_plot <- ggplot(gene_and_cov, aes(x = sampleCollection_gestAge_wks, y = expression)) +
+      geom_point(alpha = 0.8, size = 2, color = base_colour) +
+      geom_smooth(method = "lm", se = TRUE, color = colour1, fill = colour1, alpha = 0.3) +
+      labs(title = paste0(i, " Expression vs. Gestational Age at Sample Collection"),
+           x = "Gestational Age at Sample Collection (weeks)",
+           y = paste0(i, " expression")) +
+      theme_minimal() +
+      theme(plot.title = element_text(hjust = 0.5),
+            panel.grid = element_blank(),
+            axis.line = element_line(color = "black"))
+
+    ## boxplot
+    box_plot <- ggplot(gene_and_cov, aes(x = bmi_group, y = expression, fill = preg_preeclampsia)) +
+      geom_boxplot(outlier.shape = NA, alpha=0.6) + # jitter adds them back in
+      geom_jitter(aes(color = preg_preeclampsia), position = position_jitterdodge(jitter.width=0.3),
+                  alpha = 0.9, show.legend = FALSE)+
+      scale_fill_manual(values = col_palette) +
+      scale_color_manual(values = col_palette)+
+      labs(title = paste0(i, " Expression by BMI Group and Preeclampsia Status"),
+           x = "BMI group",
+           y = paste0(i, " expression"),
+           fill = "Pregnancy condition") +
+      theme_minimal() +
+      theme(plot.title = element_text(hjust = 0.5),
+            panel.grid = element_blank(),
+            axis.line = element_line(color = "black"))
+
+    print(hist_plot)
+    print(scatter_plot)
+    print(box_plot)
+  }
+}
+```
+
+
+```{r}
+gene_visuals(clean_gene_exp, project_genes)
 ```
 
