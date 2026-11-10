@@ -184,8 +184,6 @@ gene_and_cov <- clean_cov_data %>%
 
 ```
 
-
-
 ```{r}
 col_palette <- c("Normal" = base_colour, "Preeclampsia" = colour1)
 
@@ -244,13 +242,56 @@ gene_visuals <- function(df, genes) {
 
     print(hist_plot)
     print(scatter_plot)
-    print(box_plot)
-  }
+    print(box_plot)}
 }
 ```
 
 
 ```{r}
 gene_visuals(clean_gene_exp, project_genes)
+```
+
+```{r}
+project_genes_new <- c("BARD1","ISM2", "ZPBP", "NUP188","STAB2","JAM2","FAM170A","SPECC1","MAGEF1","CALHM2")
+
+gene_list_new <- linker_names %>%
+  filter(GENE %in% project_genes_new)
+
+# install.packages("pheatmap")
+library(pheatmap)
+
+## making the probe IDs the row names
+gene_exp_rows <- clean_gene_exp %>%
+  as.data.frame() %>%
+  column_to_rownames("probe_id")
+
+## picking the 10 rows by name, in order of gene list
+## new matrix for heatmap
+heat_matrix <- as.matrix(gene_exp_rows[as.character(gene_list_new$PROBEID), ])
+
+## swapping the probe IDs for gene names
+rownames(heat_matrix) <- gene_list_new$GENE
+
+# dim(heat_matrix)
+
+tracking_bars <- as.data.frame(clean_cov_data[, c("preg_preeclampsia", "bmi_group")])
+rownames(tracking_bars) <- clean_cov_data$geoID # row matched with sample ID
+colnames(tracking_bars) <- c("Condition", "BMI group")# names for the legend
+
+# plot colours
+bar_colors <- list( Condition = c("Normal" = base_colour, "Preeclampsia" = colour1),
+  `BMI group` = c("Underweight/Normal" = "#EAE3F0", "Overweight" = "#B7A6CF", "Obese" = "#6E5A92"))
+
+heat_colors <- colorRampPalette(c("#4F83BC", "#FAF6F2", "#E37A55"))(25)
+
+pheatmap(heat_matrix,
+         scale = "row",
+         annotation_col = tracking_bars,
+         annotation_colors = bar_colors,
+         color = heat_colors,
+         show_colnames = FALSE,
+         fontsize = 12,
+         fontsize_row = 12,
+         main = "Expression of 10 Genes Across 157 Women")
 ```
 
