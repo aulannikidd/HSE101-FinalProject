@@ -204,7 +204,7 @@ gene_visuals <- function(df, genes) {
     ## histogram
     hist_plot <- ggplot(gene_and_cov, aes(x = expression)) +
       geom_histogram(bins = 20, fill = base_colour, color = "white") +
-      labs(title = paste0(i, " Gene Expression"),
+      labs(title = str_wrap(paste0(i, " Gene Expression"), width=40),
            x = "Expression Level",
            y = "Number of samples") +
       theme_minimal() +
@@ -216,7 +216,8 @@ gene_visuals <- function(df, genes) {
     scatter_plot <- ggplot(gene_and_cov, aes(x = sampleCollection_gestAge_wks, y = expression)) +
       geom_point(alpha = 0.8, size = 2, color = base_colour) +
       geom_smooth(method = "lm", se = TRUE, color = colour1, fill = colour1, alpha = 0.3) +
-      labs(title = paste0(i, " Expression vs. Gestational Age at Sample Collection"),
+      labs(title = str_wrap(paste0(i, " Expression vs. Gestational Age at Sample Collection"),
+                    width = 40),
            x = "Gestational Age at Sample Collection (weeks)",
            y = paste0(i, " expression")) +
       theme_minimal() +
@@ -231,7 +232,8 @@ gene_visuals <- function(df, genes) {
                   alpha = 0.9, show.legend = FALSE)+
       scale_fill_manual(values = col_palette) +
       scale_color_manual(values = col_palette)+
-      labs(title = paste0(i, " Expression by BMI Group and Preeclampsia Status"),
+      labs(title = str_wrap(paste0(i, " Expression by BMI Group and Preeclampsia Status"),
+                            width=40),
            x = "BMI group",
            y = paste0(i, " expression"),
            fill = "Pregnancy condition") +
@@ -242,7 +244,11 @@ gene_visuals <- function(df, genes) {
 
     print(hist_plot)
     print(scatter_plot)
-    print(box_plot)}
+    print(box_plot)
+    
+    ggsave(paste0(i, "_histogram.png"),hist_plot, width = 5, height = 4, dpi = 300)
+    ggsave(paste0(i, "_scatterplot.png"), scatter_plot, width = 5, height = 4, dpi = 300)
+    ggsave(paste0(i, "_boxplot.png"),box_plot, width = 7, height = 4, dpi = 300)}
 }
 ```
 
@@ -252,6 +258,7 @@ gene_visuals(clean_gene_exp, project_genes)
 ```
 
 ```{r}
+## heatmap  
 project_genes_new <- c("BARD1","ISM2", "ZPBP", "NUP188","STAB2","JAM2","FAM170A","SPECC1","MAGEF1","CALHM2")
 
 gene_list_new <- linker_names %>%
@@ -265,8 +272,8 @@ gene_exp_rows <- clean_gene_exp %>%
   as.data.frame() %>%
   column_to_rownames("probe_id")
 
-## picking the 10 rows by name, in order of gene list
-## new matrix for heatmap
+## picking the 10 rows by name, in order of gene list and making a matrix that
+## heatmap fucntion can use
 heat_matrix <- as.matrix(gene_exp_rows[as.character(gene_list_new$PROBEID), ])
 
 ## swapping the probe IDs for gene names
@@ -289,9 +296,104 @@ pheatmap(heat_matrix,
          annotation_col = tracking_bars,
          annotation_colors = bar_colors,
          color = heat_colors,
-         show_colnames = FALSE,
+         show_colnames = FALSE, # hiding the sample IDs
          fontsize = 12,
          fontsize_row = 12,
-         main = "Expression of 10 Genes Across 157 Women")
+         main = "Expression of 10 Genes Across 157 Women",
+         filename = "heatmap1.png",
+         width = 10,height = 6)
 ```
 
+
+```{r}
+## TABLE ONE 
+# head(clean_cov_data$delivery_gestAge_wks)
+# head(clean_cov_data$mat_age_yrs)
+
+# data cleaning
+clean_cov_data <- clean_cov_data%>%
+  mutate(delivery_gestAge_wks = parse_number(delivery_gestAge_wks))
+
+clean_cov_data <- clean_cov_data%>%
+  mutate(mat_age_yrs = parse_number(mat_age_yrs))
+
+summary(clean_cov_data$mat_age_yrs)
+
+# install.packages("tableone")
+library(tableone)
+
+table_data <- clean_cov_data %>%
+  transmute(`Maternal age (years)` = mat_age_yrs,
+            `Gestational Age at Sample Collection (weeks)` = sampleCollection_gestAge_wks,
+            `Gestational Age at Delivery (weeks)` = delivery_gestAge_wks,
+            `BMI group` = bmi_group,
+            Condition = preg_preeclampsia)
+## variables for rows
+variablez <- c( "Maternal age (years)","Gestational Age at Sample Collection (weeks)",
+                "Gestational Age at Delivery (weeks)","BMI group")
+
+table1 <- CreateTableOne(vars = variablez,
+                         strata = "Condition",
+                         data = table_data,
+                         test = FALSE) # removing p-values
+
+table1_full <- print(table1, printToggle = FALSE)
+# table1_full
+write.csv(table1_full, "table1.csv")
+```
+```{r}
+## additional visualisation - modeled from "The Office Ratings" on R-graph gallery
+## finding each BMI group's average delivery age, then drawing lines to represent each woman's delivery age.
+
+## cleaning variable
+clean_cov_data <- clean_cov_data %>%
+  mutate(delivery_gestAge_wks = parse_number(delivery_gestAge_wks))
+
+# choosing variables for plot
+women_data<- clean_cov_data %>%
+  select(bmi_group, # separating by BMI
+         condition = preg_preeclampsia, # needed for colour
+         delivery_weeks = delivery_gestAge_wks) %>%
+  arrange(bmi_group, condition, delivery_weeks) %>% 
+  mutate(woman_number = row_number(), # counting all the women
+         group_number = as.numeric(bmi_group), # making the bmi into countable groups
+         x_position = woman_number + 8 * group_number) # shifting each group so there can be space
+
+# work out each group's average and where its line starts and ends
+group_avgs <- women_data%>%
+  group_by(bmi_group) %>%
+  summarise(mean_value = mean(delivery_weeks),
+            line_start = min(x_position) - 0.5,
+            line_end = max(x_position) + 0.5,
+            line_middle = mean(x_position),
+            .groups = "drop")
+
+## attaching the group avg to each woman's info
+women_data<- women_data%>%
+  left_join(group_avgs %>% select(bmi_group, mean_value), by = "bmi_group")
+
+lollipop<- ggplot() +
+  geom_segment(data = women_data,
+               aes(x = x_position, xend = x_position, y = mean_value, yend = delivery_weeks, color = condition),
+               alpha = 0.7) +
+  
+  geom_point(data = women_data, # each dot for one woman
+             aes(x = x_position, y = delivery_weeks, color = condition), size = 1.5) +
+  
+  geom_segment(data = group_avgs,
+               aes(x = line_start, xend = line_end, y = mean_value, yend = mean_value),
+               linewidth = 1.5, color = "grey30") + # avaerage for each line
+  scale_color_manual(values = col_palette, name = "Condition") +
+  scale_x_continuous(breaks = group_avgs$line_middle,
+                     labels = as.character(group_avgs$bmi_group)) +
+  labs(title = "Gestational Age at Delivery by BMI Group",
+       x = NULL, y = "Gestational age at delivery (weeks)") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5, size = 14),
+        legend.position = "bottom",
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank())
+lollipop
+
+ggsave("lollipop.png", lollipop,width = 8,height=5)
+```
